@@ -196,30 +196,30 @@ def extract_relationships(root, column_table_map, tables):
 # CORE FUNCTION
 # ============================================================
 
-def extract_metadata_from_twbx(twbx_path: str):
-    with tempfile.TemporaryDirectory() as tmp:
-        with zipfile.ZipFile(twbx_path, "r") as z:
-            z.extractall(tmp)
+# def extract_metadata_from_twbx(twbx_path: str):
+#     with tempfile.TemporaryDirectory() as tmp:
+#         with zipfile.ZipFile(twbx_path, "r") as z:
+#             z.extractall(tmp)
 
-        twb = hyper = None
-        for root_dir, _, files in os.walk(tmp):
-            for f in files:
-                if f.endswith(".twb"):
-                    twb = os.path.join(root_dir, f)
-                elif f.endswith(".hyper"):
-                    hyper = os.path.join(root_dir, f)
+#         twb = hyper = None
+#         for root_dir, _, files in os.walk(tmp):
+#             for f in files:
+#                 if f.endswith(".twb"):
+#                     twb = os.path.join(root_dir, f)
+#                 elif f.endswith(".hyper"):
+#                     hyper = os.path.join(root_dir, f)
 
-        if not twb or not hyper:
-            raise ValueError("Invalid TWBX file")
+#         if not twb or not hyper:
+#             raise ValueError("Invalid TWBX file")
 
-        tree = ET.parse(twb)
-        root = tree.getroot()
-        strip_ns(root)
+#         tree = ET.parse(twb)
+#         root = tree.getroot()
+#         strip_ns(root)
 
-        tables, col_map = extract_hyper_metadata(hyper)
-        relationships = extract_relationships(root, col_map, tables)
+#         tables, col_map = extract_hyper_metadata(hyper)
+#         relationships = extract_relationships(root, col_map, tables)
 
-        return {
-            "tables": tables,
-            "relationships": relationships
-        }
+#         return {
+#             "tables": tables,
+#             "relationships": relationships
+#         }
