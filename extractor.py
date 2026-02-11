@@ -41,13 +41,46 @@ def normalize_table_name(name: str) -> str:
 # STEP 1 — HYPER METADATA
 # ============================================================
 
+# def extract_hyper_metadata(hyper_path: str):
+#     tables: Dict[str, List[str]] = {}
+#     column_table_map: Dict[str, List[str]] = {}
+
+#     with HyperProcess(telemetry=Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU) as hyper:
+#         with Connection(hyper.endpoint, hyper_path) as conn:
+#             for schema in conn.catalog.get_schema_names():
+#                 for table in conn.catalog.get_table_names(schema):
+#                     table_name = normalize_table_name(str(table.name))
+#                     cols = []
+
+#                     table_def = conn.catalog.get_table_definition(table)
+#                     for c in table_def.columns:
+#                         col = clean(str(c.name))
+#                         cols.append(col)
+#                         column_table_map.setdefault(col, []).append(table_name)
+
+#                     tables[table_name] = cols
+
+#     return tables, column_table_map
+
+
 def extract_hyper_metadata(hyper_path: str):
     tables: Dict[str, List[str]] = {}
     column_table_map: Dict[str, List[str]] = {}
 
     with HyperProcess(telemetry=Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU) as hyper:
         with Connection(hyper.endpoint, hyper_path) as conn:
-            for schema in conn.catalog.get_schema_names():
+
+            # 🔎 DEBUG START
+            schemas = conn.catalog.get_schema_names()
+            log.info(f"SCHEMAS: {schemas}")
+
+            for schema in schemas:
+                tables_in_schema = conn.catalog.get_table_names(schema)
+                log.info(f"Tables in schema {schema}: {tables_in_schema}")
+            # 🔎 DEBUG END
+
+            # ORIGINAL LOGIC
+            for schema in schemas:
                 for table in conn.catalog.get_table_names(schema):
                     table_name = normalize_table_name(str(table.name))
                     cols = []
