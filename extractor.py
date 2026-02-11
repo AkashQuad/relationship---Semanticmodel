@@ -8,6 +8,8 @@ from typing import Dict, List
 
 from tableauhyperapi import HyperProcess, Telemetry, Connection
 
+import hashlib
+
 # ============================================================
 # LOGGING
 # ============================================================
@@ -62,7 +64,7 @@ def normalize_table_name(name: str) -> str:
 
 #     return tables, column_table_map
 
-
+# ---------------------------------------------------------------------------------------------------------------------------------
 def extract_hyper_metadata(hyper_path: str):
     tables: Dict[str, List[str]] = {}
     column_table_map: Dict[str, List[str]] = {}
@@ -94,6 +96,52 @@ def extract_hyper_metadata(hyper_path: str):
                     tables[table_name] = cols
 
     return tables, column_table_map
+
+
+
+
+# ----------------------------------------------------------------------------------------------------------
+
+
+
+
+def extract_metadata_from_twbx(twbx_path: str):
+
+    # 🔎 DEBUG FILE IDENTITY
+    size = os.path.getsize(twbx_path)
+    log.info(f"TWBX SIZE: {size} bytes")
+
+    with open(twbx_path, "rb") as f:
+        md5 = hashlib.md5(f.read()).hexdigest()
+        log.info(f"TWBX MD5: {md5}")
+    # 🔎 END DEBUG
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with zipfile.ZipFile(twbx_path, "r") as z:
+            z.extractall(tmp)
+
+        twb = hyper = None
+        for root_dir, _, files in os.walk(tmp):
+            for f in files:
+                if f.endswith(".twb"):
+                    twb = os.path.join(root_dir, f)
+                elif f.endswith(".hyper"):
+                    hyper = os.path.join(root_dir, f)
+
+        if not twb or not hyper:
+            raise ValueError("Invalid TWBX file")
+
+        tree = ET.parse(twb)
+        root = tree.getroot()
+        strip_ns(root)
+
+        tables, col_map = extract_hyper_metadata(hyper)
+        relationships = extract_relationships(root, col_map, tables)
+
+        return {
+            "tables": tables,
+            "relationships": relationships
+        }
 
 # ============================================================
 # STEP 2 — RELATIONSHIPS
