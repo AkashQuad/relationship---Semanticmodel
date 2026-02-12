@@ -928,7 +928,7 @@ def download_file_from_blob(folder_name: str) -> str:
 # ============================================================
 # API: EXTRACT METADATA
 # ============================================================
-@app.post("/extract-metadata")
+@app.post("/extract-metadata-for-relations")
 def extract_metadata(folder_name: str):
     try:
         file_path = download_file_from_blob(folder_name)
@@ -942,7 +942,7 @@ def extract_metadata(folder_name: str):
 # ============================================================
 # API: CREATE MODEL
 # ============================================================
-@app.post("/create-semantic-model")
+@app.post("/create-semantic-model-with_relations")
 def create_semantic_model(request: SemanticModelRequest):
     try:
         folder_name = request.folder_name
