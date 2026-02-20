@@ -2218,7 +2218,6 @@
 
 
 
-
 import os
 import re
 import zipfile
@@ -2305,7 +2304,6 @@ def clean_visual_column_name(name: str) -> str:
     name = re.sub(r':(nk|ok|qk|sk)$', '', name, flags=re.IGNORECASE)
     
     # CRITICAL FIX: Remove table aliases in parentheses 
-    # e.g. "ProductID (products.csv)" -> "ProductID"
     name = re.sub(r"\s*\(.*?\)", "", name)
     
     return name.strip()
@@ -2418,13 +2416,24 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
     worksheets_data = []
     dashboards_data = []
 
+    strict_map_keywords = {'latitude', 'longitude', 'country', 'city', 'state', 'zip', 'zipcode', 'geo', 'region', 'county'}
+    date_keywords = {'date', 'year', 'month', 'day', 'quarter', 'time', 'week'}
+
     # A. Worksheets
     for worksheet in root.findall(".//worksheet"):
         sheet_name = worksheet.get('name')
+        
         bound_columns_set = set()
+        quant_cols = set() # Measures (Numbers)
+        dim_cols = set()   # Dimensions (Text/Categories)
+        map_cols = set()
+        date_cols = set()
 
+        # Gather Column Properties
         for dep in worksheet.findall(".//datasource-dependencies"):
             for col in dep.findall("column-instance"):
+                col_type = col.get('type')  # 'quantitative', 'nominal', or 'ordinal'
+                
                 col_ref = col.get('column')
                 clean_col = None
                 
@@ -2435,12 +2444,28 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
                 if not clean_col:
                     clean_col = clean_visual_column_name(col.get('name'))
                     
-                if clean_col: bound_columns_set.add(clean_col)
+                if clean_col:
+                    bound_columns_set.add(clean_col)
+                    c_lower = clean_col.lower()
+                    
+                    # Track Measures vs Dimensions
+                    if col_type == 'quantitative':
+                        quant_cols.add(clean_col)
+                    else:
+                        dim_cols.add(clean_col)
+                        
+                    # Track Maps and Dates
+                    if any(kw == c_lower or c_lower.startswith(kw + "_") or c_lower.endswith("_" + kw) for kw in strict_map_keywords):
+                        map_cols.add(clean_col)
+                        
+                    if any(kw in c_lower for kw in date_keywords):
+                        date_cols.add(clean_col)
 
         # FILTER OUT EMPTY WORKSHEETS
         if not bound_columns_set:
             continue
 
+        # Extract Explicit Tableau Mark (if set)
         visual_type = "Automatic"
         for mark_element in worksheet.findall(".//pane/mark"):
             cls = mark_element.get('class')
@@ -2448,34 +2473,20 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
                 visual_type = MARK_MAP.get(cls.lower(), cls.capitalize())
                 break
         
-        # 🔥 SMART "AUTOMATIC" FALLBACK ENGINE
+        # 🔥 THE BULLETPROOF "AUTOMATIC" ENGINE
         if visual_type == "Automatic":
-            col_list_lower = [c.lower() for c in bound_columns_set]
-            
-            # 1. Geographic Check (Strict Boundaries)
-            strict_map_keywords = {'latitude', 'longitude', 'country', 'city', 'state', 'zip', 'zipcode', 'geo', 'region', 'county'}
-            is_map = any(
-                any(keyword == col or col.startswith(keyword + "_") or col.endswith("_" + keyword) 
-                    for keyword in strict_map_keywords)
-                for col in col_list_lower
-            )
-            
-            # 2. Time-Series Check (Dates)
-            date_keywords = {'date', 'year', 'month', 'day', 'quarter', 'time', 'week'}
-            has_date = any(
-                any(keyword in col for keyword in date_keywords)
-                for col in col_list_lower
-            )
-
-            # Assign best fit
-            if is_map: 
+            if map_cols:
                 visual_type = "Map"
-            elif has_date:
-                visual_type = "Line Chart"  # Dates almost always imply trends/lines
-            elif len(bound_columns_set) <= 1: 
-                visual_type = "Text Table"  # Single metric -> Table/Card
-            else: 
-                visual_type = "Bar Chart"   # 2+ columns (Categories + Values) -> Bar Chart
+            elif date_cols and quant_cols:
+                visual_type = "Line Chart"  # Trend over time
+            elif len(quant_cols) == 0:
+                visual_type = "Text Table"  # No numbers = must be a table
+            elif len(quant_cols) == 1 and len(dim_cols) == 0:
+                visual_type = "Card"        # Just one single number = KPI/Card
+            elif len(quant_cols) >= 2 and len(dim_cols) == 0:
+                visual_type = "Scatter Plot" # Comparing numbers to numbers
+            else:
+                visual_type = "Bar Chart"   # Default for Categories vs Numbers
 
         # Format bound columns
         formatted_columns = []
