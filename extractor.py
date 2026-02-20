@@ -2266,14 +2266,10 @@ def clean(val: str) -> str:
 
 def normalize_table_name(name: str) -> str:
     """
-    Aggressively cleans table names by removing 'Extract' prefixes 
-    and internal Tableau UUIDs/hexadecimal strings.
+    Cleans table names by removing 'Extract' prefixes and internal UUIDs.
     """
     name = clean(name)
-    # Handle SQL/Snowflake format: "TABLE (SCHEMA.TABLE)"
     name = re.sub(r"\s*\(.*?\)", "", name)
-    
-    # Remove 'Extract' prefix and common file suffixes
     name = re.sub(r'^Extract[_\s]?', '', name, flags=re.IGNORECASE)
     
     if "." in name and not name.lower().endswith(".csv"):
@@ -2282,30 +2278,26 @@ def normalize_table_name(name: str) -> str:
     if "#" in name: name = name.split("#")[0]
     if ".csv" in name.lower(): name = name.split(".csv")[0]
     
-    # Specific regex to strip 32-character hex strings common in extracts
     name = re.sub(r"_[A-Z0-9a-z]{32}$", "", name)
     name = re.sub(r"_[A-Z0-9a-z]{10,}$", "", name)
     
     return re.sub(r"[^a-zA-Z0-9]", "", name).lower()
 
 def is_junk_table(name: str) -> bool:
+    """
+    Only filter out absolute internal Tableau system nodes.
+    """
     name = name.lower()
-    if name in ["extract", "csv", "data", "clipboard", "federated"]: return True
-    if re.match(r"^csv[a-f0-9]{10,}$", name): return True
+    if name.startswith("federated"): return True
+    if name == "clipboard": return True
     return False
 
 def clean_visual_column_name(name: str) -> str:
-    """Cleans internal Tableau column names for visual metadata."""
     if not name: return ""
     name = name.replace("[", "").replace("]", "")
-    # Remove tableau internal prefixes (sum:, none:, etc.)
     name = re.sub(r'^(none|sum|avg|min|max|count|attr|yr|mn|dy|qd|tdc):', '', name, flags=re.IGNORECASE)
-    # Remove internal suffixes
     name = re.sub(r':(nk|ok|qk|sk)$', '', name, flags=re.IGNORECASE)
-    
-    # CRITICAL FIX: Remove table aliases in parentheses 
     name = re.sub(r"\s*\(.*?\)", "", name)
-    
     return name.strip()
 
 # ============================================================
@@ -2336,7 +2328,7 @@ def extract_hyper_metadata(hyper_path: str):
     return tables
 
 # ============================================================
-# STEP 2: XML METADATA (Logical)
+# STEP 2: XML METADATA (Logical - FIXED FOR UNKNOWN TABLES)
 # ============================================================
 def extract_xml_metadata(root: ET.Element):
     xml_tables: Dict[str, List[str]] = {}
@@ -2345,6 +2337,7 @@ def extract_xml_metadata(root: ET.Element):
     all_elements = root.findall(".//")
     records = [el for el in all_elements if "metadata-record" in el.tag]
 
+    # 1. Read from metadata records
     for record in records:
         if record.get("class") != "column": continue
         remote_name = record.find("remote-name")
@@ -2354,15 +2347,28 @@ def extract_xml_metadata(root: ET.Element):
         if remote_name is not None and parent_name is not None:
             col = clean(remote_name.text)
             clean_tbl = normalize_table_name(parent_name.text)
-            if is_junk_table(clean_tbl): continue
+            
+            if not is_junk_table(clean_tbl):
+                xml_tables.setdefault(clean_tbl, [])
+                if col not in xml_tables[clean_tbl]: xml_tables[clean_tbl].append(col)
+                    
+                if local_name_node is not None:
+                    raw_local = local_name_node.text
+                    local_name_map[raw_local] = {"table": clean_tbl, "col": col}
+                    local_name_map[clean(raw_local)] = {"table": clean_tbl, "col": col}
 
-            xml_tables.setdefault(clean_tbl, [])
-            if col not in xml_tables[clean_tbl]: xml_tables[clean_tbl].append(col)
-                
-            if local_name_node is not None:
-                raw_local = local_name_node.text
-                local_name_map[raw_local] = {"table": clean_tbl, "col": col}
-                local_name_map[clean(raw_local)] = {"table": clean_tbl, "col": col}
+    # 2. Fallback: Read directly from relation tags if metadata is missing
+    for relation in root.findall(".//relation"):
+        if relation.get("type") == "table":
+            t_name = relation.get("name") or relation.get("table") or "Unknown"
+            clean_tbl = normalize_table_name(t_name)
+            
+            if not is_junk_table(clean_tbl):
+                xml_tables.setdefault(clean_tbl, [])
+                for col in relation.findall(".//column"):
+                    col_name = clean(col.get("name"))
+                    if col_name and col_name not in xml_tables[clean_tbl]:
+                        xml_tables[clean_tbl].append(col_name)
 
     return xml_tables, local_name_map
 
@@ -2424,15 +2430,14 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
         sheet_name = worksheet.get('name')
         
         bound_columns_set = set()
-        quant_cols = set() # Measures (Numbers)
-        dim_cols = set()   # Dimensions (Text/Categories)
+        quant_cols = set() 
+        dim_cols = set()   
         map_cols = set()
         date_cols = set()
 
-        # Gather Column Properties
         for dep in worksheet.findall(".//datasource-dependencies"):
             for col in dep.findall("column-instance"):
-                col_type = col.get('type')  # 'quantitative', 'nominal', or 'ordinal'
+                col_type = col.get('type')  
                 
                 col_ref = col.get('column')
                 clean_col = None
@@ -2448,24 +2453,17 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
                     bound_columns_set.add(clean_col)
                     c_lower = clean_col.lower()
                     
-                    # Track Measures vs Dimensions
-                    if col_type == 'quantitative':
-                        quant_cols.add(clean_col)
-                    else:
-                        dim_cols.add(clean_col)
+                    if col_type == 'quantitative': quant_cols.add(clean_col)
+                    else: dim_cols.add(clean_col)
                         
-                    # Track Maps and Dates
                     if any(kw == c_lower or c_lower.startswith(kw + "_") or c_lower.endswith("_" + kw) for kw in strict_map_keywords):
                         map_cols.add(clean_col)
                         
                     if any(kw in c_lower for kw in date_keywords):
                         date_cols.add(clean_col)
 
-        # FILTER OUT EMPTY WORKSHEETS
-        if not bound_columns_set:
-            continue
+        if not bound_columns_set: continue
 
-        # Extract Explicit Tableau Mark (if set)
         visual_type = "Automatic"
         for mark_element in worksheet.findall(".//pane/mark"):
             cls = mark_element.get('class')
@@ -2473,22 +2471,20 @@ def extract_visual_metadata(root: ET.Element, column_map: Dict[str, List[str]]):
                 visual_type = MARK_MAP.get(cls.lower(), cls.capitalize())
                 break
         
-        # 🔥 THE BULLETPROOF "AUTOMATIC" ENGINE
         if visual_type == "Automatic":
             if map_cols:
                 visual_type = "Map"
             elif date_cols and quant_cols:
-                visual_type = "Line Chart"  # Trend over time
+                visual_type = "Line Chart"  
             elif len(quant_cols) == 0:
-                visual_type = "Text Table"  # No numbers = must be a table
+                visual_type = "Text Table"  
             elif len(quant_cols) == 1 and len(dim_cols) == 0:
-                visual_type = "Card"        # Just one single number = KPI/Card
+                visual_type = "Card"        
             elif len(quant_cols) >= 2 and len(dim_cols) == 0:
-                visual_type = "Scatter Plot" # Comparing numbers to numbers
+                visual_type = "Scatter Plot" 
             else:
-                visual_type = "Bar Chart"   # Default for Categories vs Numbers
+                visual_type = "Bar Chart"   
 
-        # Format bound columns
         formatted_columns = []
         for col in sorted(list(bound_columns_set)):
             possible_tables = column_map.get(col, ["Unknown"])
