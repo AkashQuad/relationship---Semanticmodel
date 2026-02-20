@@ -2217,7 +2217,6 @@
 
 
 
-
 import os
 import re
 import zipfile
@@ -2266,22 +2265,30 @@ def clean(val: str) -> str:
 
 def normalize_table_name(name: str) -> str:
     """
-    Cleans table names by removing 'Extract' prefixes and internal UUIDs.
+    Surgically cleans table names by removing 'Extract' prefixes, 
+    file extensions, and internal Tableau 32-character hex strings.
     """
     name = clean(name)
+    
+    # 1. Remove aliases in parentheses e.g. "Table (Schema.Table)"
     name = re.sub(r"\s*\(.*?\)", "", name)
+    
+    # 2. Remove UUIDs/Hex strings (32 chars) anywhere in the string
+    name = re.sub(r"[_\-]?[0-9a-fA-F]{32}", "", name)
+    
+    # 3. Remove common file extensions
+    name = re.sub(r"\.(csv|txt|xlsx|xls|hyper|tde)", "", name, flags=re.IGNORECASE)
+    
+    # 4. Remove 'Extract' or 'Extract_' prefix
     name = re.sub(r'^Extract[_\s]?', '', name, flags=re.IGNORECASE)
     
-    if "." in name and not name.lower().endswith(".csv"):
-        parts = name.split(".")
-        if len(parts) >= 2: name = parts[-1]
-    if "#" in name: name = name.split("#")[0]
-    if ".csv" in name.lower(): name = name.split(".csv")[0]
+    # 5. Split by '#' (Tableau puts #csv at the end of text file connections)
+    name = name.split("#")[0]
     
-    name = re.sub(r"_[A-Z0-9a-z]{32}$", "", name)
-    name = re.sub(r"_[A-Z0-9a-z]{10,}$", "", name)
+    # 6. Clean non-alphanumeric and lowercase
+    name = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
     
-    return re.sub(r"[^a-zA-Z0-9]", "", name).lower()
+    return name
 
 def is_junk_table(name: str) -> bool:
     """
@@ -2290,6 +2297,7 @@ def is_junk_table(name: str) -> bool:
     name = name.lower()
     if name.startswith("federated"): return True
     if name == "clipboard": return True
+    if name == "csv": return True # Filter out raw csv artifacts
     return False
 
 def clean_visual_column_name(name: str) -> str:
@@ -2328,7 +2336,7 @@ def extract_hyper_metadata(hyper_path: str):
     return tables
 
 # ============================================================
-# STEP 2: XML METADATA (Logical - FIXED FOR UNKNOWN TABLES)
+# STEP 2: XML METADATA (Logical)
 # ============================================================
 def extract_xml_metadata(root: ET.Element):
     xml_tables: Dict[str, List[str]] = {}
