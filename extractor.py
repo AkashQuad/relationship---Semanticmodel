@@ -2234,22 +2234,22 @@ log = logging.getLogger("tableau-metadata")
 # ============================================================
 # CONSTANTS (Visual Mapping)
 # ============================================================
-MARK_MAP = {
-    'bar': 'Bar Chart',
-    'line': 'Line Chart',
-    'area': 'Area Chart',
-    'text': 'Text Table',
-    'circle': 'Scatter Plot',
-    'square': 'Heat Map',
-    'pie': 'Pie Chart',
-    'map': 'Map',
-    'ganttbar': 'Gantt Chart',
-    'shape': 'Shape Chart',
-    'scatter': 'Scatter Plot',
-    'multipolygon': 'Map',
-    'filledmap': 'Map',
-    'polygon': 'Map'
-}
+# MARK_MAP = {
+#     'bar': 'Bar Chart',
+#     'line': 'Line Chart',
+#     'area': 'Area Chart',
+#     'text': 'Text Table',
+#     'circle': 'Scatter Plot',
+#     'square': 'Heat Map',
+#     'pie': 'Pie Chart',
+#     'map': 'Map',
+#     'ganttbar': 'Gantt Chart',
+#     'shape': 'Shape Chart',
+#     'scatter': 'Scatter Plot',
+#     'multipolygon': 'Map',
+#     'filledmap': 'Map',
+#     'polygon': 'Map'
+# }
 
 # ============================================================
 # UTILS
