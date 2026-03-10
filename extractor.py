@@ -2286,7 +2286,8 @@ def normalize_table_name(name: str) -> str:
     name = name.split("#")[0]
     
     # 6. Clean non-alphanumeric and lowercase
-    name = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
+    # name = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
+    name = re.sub(r"[^a-zA-Z0-9 _-]", "", name).strip()
     
     return name
 
